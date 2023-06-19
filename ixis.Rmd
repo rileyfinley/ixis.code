@@ -1,0 +1,448 @@
+---
+title: "IXIS_test"
+output: html_document
+date: "2023-06-14"
+---
+```{r}
+adds_to_cart<-read.csv("DataAnalyst_Ecom_data_addsToCart.csv")
+session_counts<-read.csv("DataAnalyst_Ecom_data_sessionCounts.csv")
+```
+
+
+
+
+```{r}
+#install and load packages 
+
+install.packages("lubridate")
+library(lubridate)
+
+install.packages("tidyverse")
+library("tidyverse")
+```
+
+```{r}
+#change date to data class/format
+
+session_counts$dim_date<-mdy(session_counts$dim_date)
+session_counts
+```
+
+```{r}
+session_counts2<-session_counts 
+session_counts2
+```
+
+
+```{r}
+#only display month in date column 
+
+session_counts2$dim_date<-format(as.Date(session_counts2$dim_date), "%m")
+```
+
+```{r}
+session_counts2$dim_date<-as.numeric(session_counts2$dim_date)
+session_counts2
+```
+
+
+
+
+```{r}
+#data frame comparing most recent months metrics
+
+library(dplyr)
+
+session_counts2%>%
+  select(dim_date, sessions, transactions, QTY)%>%
+  group_by(dim_date)%>%
+  filter(dim_date == 5 | dim_date == 6)%>%
+  summarise(total_sessions=sum(sessions), total_transactions=sum(transactions), total_QTY=sum(QTY))->table2
+table2
+  
+```
+
+```{r}
+table2%>%
+  rename("dim_month"= "dim_date")-> table2
+```
+
+
+
+```{r}
+#join adds_to_cart data to sessions table
+
+table2<-merge(x = adds_to_cart, y = table2, by = "dim_month", all.y = TRUE)
+table2
+```
+
+
+```{r}
+#add absolute difference
+
+rows <- nrow(table2)
+diff_frame <- table2[-1,] - table2[-rows,]
+
+may_june<-rbind(table2, diff_frame)
+
+may_june
+```
+
+
+
+
+```{r}
+#calculate and add relative difference
+
+rel_diff<-(may_june[2,]- may_june[1,])/may_june[1,]*100
+rel_diff<-format(round(rel_diff, 2), nsmall = 2)
+rel_diff <- paste(rel_diff, "%", sep="")
+
+
+final2<-rbind(may_june, rel_diff)
+final2
+
+```
+
+
+
+```{r}
+#removed unnecessary columns 
+
+final2<-as.data.frame(t(final2))
+final2<-final2[-c(1:2),]
+final2
+
+#rename columns
+
+final2<-setNames(cbind(rownames(final2), final2, row.names = NULL), 
+         c("Metric", "May", "June", "Absolute_Difference", "Relative_Difference"))
+
+final2
+```
+
+
+
+
+
+```{r}
+#created long format for easier plotting purposes 
+
+long_format<-gather(table2, key = "metrics", value="values", -dim_month, -dim_year)
+long_format
+
+long_format<-long_format[-c(0,2)]
+
+long_format%>%
+  group_by(metrics)%>%mutate(absolute_diff=values-lag(
+  values,default=first(values)))->long_format
+
+
+long_format %>% 
+   group_by(metrics) %>% 
+   mutate(rel_diff = (values[dim_month == "6"] - values)/values*100)->long_format
+
+long_format
+
+long_format$rel_diff<-format(round(long_format$rel_diff, 2), nsmall = 2)
+long_format$rel_diff <- paste(long_format$rel_diff, "%", sep="")
+
+```
+
+
+
+```{r}
+#Metric totals and relative difference plot 
+
+ggplot(long_format, aes(x=metrics, y=values, fill=as.factor(dim_month)))+ labs(fill="Month") + scale_fill_discrete(labels=c('May', 'June')) +
+  geom_bar(stat="identity", position = "dodge") +  geom_text(aes(label=ifelse(dim_month=="5",paste0(rel_diff)," ")),hjust=-.7, vjust=-1, size=5,
+        position = position_dodge(width = .3))  + theme_linedraw() + theme_light() + labs(y="Count", title="Changes in website metrics", subtitle="May 2013 - June 2013") + theme(plot.title=element_text(size=20), plot.subtitle = element_text(size=15), axis.title=element_text(size=15), axis.text=element_text(size=15))
+```
+
+
+
+
+```{r}
+#copy of data for second table
+
+session_counts3<-session_counts
+```
+
+
+```{r}
+#removed day from date
+
+session_counts3$dim_date<-format(session_counts3$dim_date, "%m/%Y")
+```
+
+```{r}
+session_counts3$dim_date<-factor(session_counts3$dim_date, levels = unique(session_counts3$dim_date))
+session_counts3
+```
+
+```{r}
+
+session_counts3<-session_counts3[c(2:6)]
+session_counts3
+
+```
+
+
+
+```{r}
+session_counts4<-gather(session_counts3, key = "metrics", value="values", -dim_deviceCategory,-dim_date)
+session_counts4
+```
+
+```{r}
+session_counts4%>%
+  group_by(dim_deviceCategory, metrics, dim_date)%>%
+  summarise(total_value=sum(values))%>%
+  arrange(mdy(dim_date))->session_counts4
+
+session_counts4
+
+```
+
+```{r}
+session_counts4=session_counts4 %>% 
+  spread(dim_date, total_value)
+
+```
+
+
+
+```{r}
+#total transactions dataframe grouped by device
+
+
+session_counts3%>%
+  select(dim_date, transactions, dim_deviceCategory)%>%
+  group_by(dim_deviceCategory, dim_date)%>%
+  summarise(total_transactions=sum(transactions))%>%
+  arrange(mdy(dim_date))->transactions
+
+transactions
+
+```
+
+
+
+
+```{r}
+transactions %>%
+  ggplot( aes(x=dim_date, y=total_transactions, group=dim_deviceCategory, color=dim_deviceCategory)) +
+    geom_line()  + labs(x="Date", y="Transactions", colour="Device Category") + theme(axis.title=element_text(size=15), plot.title=element_text(size=20), plot.subtitle = element_text(size=15), axis.text=element_text(size=15), legend.title = element_text(size=15), legend.text = element_text(size=15))
+```
+
+```{r}
+#wide format for better table view 
+
+transactions_wide<-transactions
+
+transactions_wide$total_transactions<-format(transactions_wide$total_transactions,big.mark=",",scientific=FALSE)
+
+transactions_wide = transactions_wide %>% 
+  spread(dim_date, total_transactions)%>%
+  as.data.frame(transactions_wide)
+
+transactions_wide
+
+transactions_wide$metric<-rep(c("transactions"), times=3)
+
+transactions_wide=transactions_wide%>%relocate(metric)
+
+
+transactions_wide
+```
+
+
+
+```{r}
+#total sessions dataframe grouped by device
+
+session_counts3%>%
+  select(dim_date, sessions, dim_deviceCategory)%>%
+  group_by(dim_deviceCategory, dim_date)%>%
+  summarise(total_sessions=sum(sessions))->sessions
+
+
+```
+
+
+```{r}
+#wide format to better track changes over time
+
+sessions_wide<-sessions
+  
+sessions_wide$total_sessions<-format(sessions_wide$total_sessions,big.mark=",",scientific=FALSE)
+
+sessions_wide = sessions_wide %>% 
+  spread(dim_date, total_sessions)
+
+sessions_wide
+
+sessions_wide$metric<-rep(c("sessions"), times=3)
+
+sessions_wide=sessions_wide%>%relocate(metric)
+
+```
+
+
+```{r}
+ sessions%>%
+  ggplot( aes(x=dim_date, y=total_sessions, group=dim_deviceCategory, color=dim_deviceCategory)) +
+    geom_line() + labs(x="Date", y="Sessions", colour="Device Category") + theme_linedraw() + theme_light() + labs(title="Total website sessions", subtitle="July 2012 - June 2013 ") + theme(axis.title=element_text(size=15), plot.title=element_text(size=20), plot.subtitle = element_text(size=15), axis.text=element_text(size=15), legend.title = element_text(size=15), legend.text = element_text(size=15))
+```
+
+
+```{r}
+#total QTY dataframe grouped by device
+
+session_counts3%>%
+  select(dim_date, QTY, dim_deviceCategory)%>%
+  group_by(dim_deviceCategory, dim_date)%>%
+  summarise(total_QTY=sum(QTY))->QTY
+
+
+QTY
+```
+
+
+
+```{r}
+QTY %>%
+  ggplot( aes(x=dim_date, y=total_QTY, group=dim_deviceCategory, color=dim_deviceCategory)) +
+    geom_line() + labs(x="Date", y="QTY", colour="Device Category") + theme_linedraw() + theme_light() + theme(axis.title=element_text(size=15), plot.title=element_text(size=20), plot.subtitle = element_text(size=15), axis.text=element_text(size=15), legend.title = element_text(size=15), legend.text = element_text(size=15))
+```
+
+
+
+
+```{r}
+#wide format to better track changes over time
+
+
+QTY_wide<-QTY
+QTY_wide$total_QTY<-format(QTY_wide$total_QTY, big.mark="," , scientific = FALSE)
+
+QTY_wide = QTY_wide %>% 
+  spread(dim_date, total_QTY)
+
+QTY_wide
+
+QTY_wide$metric<-rep(c("QTY"), times=3)
+
+QTY_wide=QTY_wide%>%relocate(metric)
+
+QTY_wide
+
+```
+
+
+
+
+```{r}
+#total ECR dataframe grouped by device
+
+session_counts3%>%
+  select(dim_date, transactions, sessions, dim_deviceCategory)%>%
+  group_by(dim_deviceCategory, dim_date)%>%
+  summarise(total_sessions=sum(sessions), total_transactions=sum(transactions))->ECR1
+
+#Calculating ECR 
+
+ECR1$ECR<-ECR1$total_transactions/ECR1$total_sessions*100
+
+ECR1
+
+ECR1<-ECR1[ -c(3:4) ]
+
+
+ECR1$ECR<-format(round(ECR1$ECR, 1), nsmall = 1)
+ECR1$ECR <- paste(ECR1$ECR, "%", sep="")
+
+ECR1
+
+
+```
+
+
+```{r}
+
+#wide format to better track changes over time
+
+ECR_wide = ECR1 %>%
+  spread(dim_date, ECR)
+
+ECR_wide
+
+ECR_wide$metric<-rep(c("ECR"), times=3)
+
+ECR_wide=ECR_wide%>%relocate(metric)
+
+```
+
+
+```{r}
+ECR1 %>%
+  ggplot(aes(x=dim_date, y=ECR, group=dim_deviceCategory, color=dim_deviceCategory)) +
+    geom_line() +  labs(x="Date", y="ECR", colour="Device Category") + theme_linedraw() + theme_light() + labs(title="Changes in website ECR", subtitle="July 2012 - June 2013 ") + theme(axis.title=element_text(size=15), plot.title=element_text(size=20), plot.subtitle = element_text(size=15), axis.text=element_text(size=15), legend.title = element_text(size=15), legend.text = element_text(size=15))
+```
+
+
+
+
+```{r}
+device_metrics<-rbind(ECR_wide, QTY_wide, transactions_wide, sessions_wide)
+device_metrics
+```
+
+
+
+```{r}
+install.packages("kableExtra")
+library(kableExtra)
+```
+
+```{r}
+monthly_activity<-kbl(device_metrics[1:12, 2:14], caption = "Group Rows") %>%
+  kable_paper("striped", full_width = F) %>%
+  pack_rows(index = c("ECR" = 3, "QTY" = 3, "Transactions" = 3, "Sessions"=3))
+```
+
+
+```{r}
+ECR_wide
+```
+
+
+
+
+
+
+```{r}
+install.packages("expss")
+
+install.packages("openxlsx")
+library(expss)
+library(openxlsx)
+
+
+dataset_names<-list('May_June_Comparison' = final2, 'Device_metrics' = device_metrics)
+write.xlsx(dataset_names, file = 'IXIS.xlsx')
+
+```
+
+
+```{r}
+final2
+```
+
+
+
+```{r}
+monthly_activity
+```
+
+
